@@ -1,0 +1,7 @@
+data/
+viewer/node_modules/
+viewer/.next/
+__pycache__/
+*.pyc
+.env
+.claude/scheduled_tasks.lock

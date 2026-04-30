@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: #0A0F1E;
+  --color-surface: #111827;
+  --color-elevated: #1E293B;
+  --color-border: #1E293B;
+  --color-border-light: #334155;
+  --color-text: #F8FAFC;
+  --color-text-muted: #94A3B8;
+  --color-text-dim: #64748B;
+  --color-green: #22C55E;
+  --color-red: #EF4444;
+  --color-blue: #3B82F6;
+  --color-yellow: #FBBF24;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  overflow-x: hidden;
+}
+
+/* Range input (timeline scrubber) */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-track {
+  height: 4px;
+  background: #1E293B;
+  border-radius: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #3B82F6;
+  margin-top: -4px;
+  border: none;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: #1E293B;
+  border-radius: 2px;
+  border: none;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #3B82F6;
+  border: none;
+}
+
+/* Price flash animations */
+@keyframes flash-green {
+  0% { color: #22C55E; }
+  100% { color: #F8FAFC; }
+}
+
+@keyframes flash-red {
+  0% { color: #EF4444; }
+  100% { color: #F8FAFC; }
+}
+
+.flash-up { animation: flash-green 0.5s ease-out; }
+.flash-down { animation: flash-red 0.5s ease-out; }
