@@ -4,7 +4,7 @@ import path from 'path';
 export const dynamic = 'force-dynamic';
 
 const DATA_DIR = path.resolve(process.cwd(), '..', 'data');
-const EXPECTED_CACHE_VERSION = 8;
+const EXPECTED_CACHE_VERSION = 9;
 const WORKER_SCRIPT = path.resolve(process.cwd(), 'scripts', 'process-worker.mjs');
 
 function isCacheValid(epoch: string): boolean {

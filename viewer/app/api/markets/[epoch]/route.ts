@@ -18,7 +18,7 @@ export async function GET(
 
   if (existsSync(metaPath) && existsSync(framesPath)) {
     const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
-    if (meta.cacheVersion === 8) {
+    if (meta.cacheVersion === 9) {
       const frames = JSON.parse(readFileSync(framesPath, 'utf-8'));
       return Response.json({ meta, frames });
     }

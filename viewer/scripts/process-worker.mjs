@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '..', '..', 'data');
 
-const CACHE_VERSION = 8;
+const CACHE_VERSION = 9;
 
 const PARAMS = {
   micropriceWeight: 0.7,
@@ -466,8 +466,8 @@ async function main() {
         const n = parsed.normalized;
         pendingDepth = {
           ts: parsed.ts_recv_ms,
-          bids: n.bids ? n.bids.slice(0, 200).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
-          asks: n.asks ? n.asks.slice(0, 200).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
+          bids: n.bids ? n.bids.map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
+          asks: n.asks ? n.asks.map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
         };
         return;
       }
