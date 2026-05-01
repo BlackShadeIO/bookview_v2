@@ -466,8 +466,8 @@ async function main() {
         const n = parsed.normalized;
         pendingDepth = {
           ts: parsed.ts_recv_ms,
-          bids: n.bids ? n.bids.map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
-          asks: n.asks ? n.asks.map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
+          bids: n.bids ? n.bids.slice(0, 2000).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
+          asks: n.asks ? n.asks.slice(0, 2000).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
         };
         return;
       }
@@ -509,7 +509,7 @@ async function main() {
       btc: { bid: latestBtcTick.bid, ask: latestBtcTick.ask, mid: (latestBtcTick.bid + latestBtcTick.ask) / 2 },
       up: { bestBid: latestUp?.bestBid ?? 0, bestAsk: latestUp?.bestAsk ?? 0, lastTrade: latestUp?.lastTrade ?? null },
       down: { bestBid: latestDown?.bestBid ?? 0, bestAsk: latestDown?.bestAsk ?? 0, lastTrade: latestDown?.lastTrade ?? null },
-      btcDepth: { bids: latestBtcDepth?.bids ?? [], asks: latestBtcDepth?.asks ?? [] },
+      btcDepth: { bids: (latestBtcDepth?.bids ?? []).slice(0, 200), asks: (latestBtcDepth?.asks ?? []).slice(0, 200) },
       polyUpDepth: { bids: latestUp?.bids ?? [], asks: latestUp?.asks ?? [] },
       polyDownDepth: { bids: latestDown?.bids ?? [], asks: latestDown?.asks ?? [] },
       fairValue: resolvedStrikePrice != null
