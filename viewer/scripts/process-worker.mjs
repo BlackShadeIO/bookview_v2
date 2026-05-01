@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '..', '..', 'data');
 
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 
 const PARAMS = {
   micropriceWeight: 0.7,
@@ -356,11 +356,11 @@ async function main() {
     process.exit(1);
   }
 
-  // Pass 2: depth-trade.jsonl
+  // Pass 2: depth-trade.jsonl (tickers + trades only; depths streamed later)
   const btcTickers = [];
-  const btcDepths = [];
   const btcTrades = [];
   let explicitStrikePrice = null;
+  let depthMinTs = Infinity, depthMaxTs = -Infinity;
 
   sendProgress(45, 'Reading depth-trade.jsonl...');
 
@@ -389,13 +389,9 @@ async function main() {
           askQty: parseFloat(normalized.ask_qty),
         });
       } else if (eventType === 'book_state') {
-        const rawBids = normalized.bids;
-        const rawAsks = normalized.asks;
-        btcDepths.push({
-          ts: parsed.ts_recv_ms,
-          bids: rawBids ? rawBids.slice(0, 2000).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
-          asks: rawAsks ? rawAsks.slice(0, 2000).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
-        });
+        const ts = parsed.ts_recv_ms;
+        if (ts < depthMinTs) depthMinTs = ts;
+        if (ts > depthMaxTs) depthMaxTs = ts;
       } else if (eventType === 'trade_normalized') {
         btcTrades.push({
           ts: parsed.ts_recv_ms,
@@ -418,14 +414,13 @@ async function main() {
   upEntries.sort((a, b) => a.ts - b.ts);
   downEntries.sort((a, b) => a.ts - b.ts);
   btcTickers.sort((a, b) => a.ts - b.ts);
-  btcDepths.sort((a, b) => a.ts - b.ts);
   btcTrades.sort((a, b) => a.ts - b.ts);
 
   const allTimestamps = [];
   if (upEntries.length) allTimestamps.push(upEntries[0].ts, upEntries[upEntries.length - 1].ts);
   if (downEntries.length) allTimestamps.push(downEntries[0].ts, downEntries[downEntries.length - 1].ts);
   if (btcTickers.length) allTimestamps.push(btcTickers[0].ts, btcTickers[btcTickers.length - 1].ts);
-  if (btcDepths.length) allTimestamps.push(btcDepths[0].ts, btcDepths[btcDepths.length - 1].ts);
+  if (depthMinTs !== Infinity) allTimestamps.push(depthMinTs, depthMaxTs);
 
   if (allTimestamps.length === 0) {
     console.error(`No data events found for epoch ${epoch}`);
@@ -453,7 +448,35 @@ async function main() {
   const accumulator = new FairValueAccumulator();
   const bookStrikeFvAccumulator = new BookStrikeFairValueAccumulator();
 
-  let upPtr = 0, downPtr = 0, btcTickPtr = 0, btcDepthPtr = 0, btcTradePtr = 0;
+  // Stream depth data from file during frame generation to avoid OOM
+  const depthStream2 = createReadStream(depthPath, { encoding: 'utf-8', highWaterMark: 256 * 1024 });
+  const depthRl2 = createInterface({ input: depthStream2, crlfDelay: Infinity });
+  const depthIter = depthRl2[Symbol.asyncIterator]();
+  let pendingDepth = null;
+  let depthDone = false;
+
+  async function fetchNextDepth() {
+    while (!depthDone) {
+      const { value, done } = await depthIter.next();
+      if (done) { depthDone = true; return; }
+      if (!value.trim()) continue;
+      let parsed;
+      try { parsed = JSON.parse(value); } catch { continue; }
+      if (parsed.event_type === 'book_state' && parsed.normalized) {
+        const n = parsed.normalized;
+        pendingDepth = {
+          ts: parsed.ts_recv_ms,
+          bids: n.bids ? n.bids.slice(0, 200).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
+          asks: n.asks ? n.asks.slice(0, 200).map(([p, q]) => [parseFloat(p), parseFloat(q)]) : [],
+        };
+        return;
+      }
+    }
+  }
+
+  await fetchNextDepth();
+
+  let upPtr = 0, downPtr = 0, btcTickPtr = 0, btcTradePtr = 0;
   const frames = [];
   let latestUp = null, latestDown = null, latestBtcTick = null, latestBtcDepth = null;
 
@@ -466,12 +489,12 @@ async function main() {
       accumulator.onBookTicker(t.ts, t.bid, t.bidQty, t.ask, t.askQty);
       btcTickPtr++;
     }
-    while (btcDepthPtr < btcDepths.length && btcDepths[btcDepthPtr].ts <= ts) {
-      const d = btcDepths[btcDepthPtr];
-      latestBtcDepth = d;
-      accumulator.onDepthSnapshot(d.ts, d.bids, d.asks);
-      bookStrikeFvAccumulator.onDepthSnapshot(d.ts, d.bids, d.asks);
-      btcDepthPtr++;
+    while (pendingDepth && pendingDepth.ts <= ts) {
+      latestBtcDepth = pendingDepth;
+      accumulator.onDepthSnapshot(pendingDepth.ts, pendingDepth.bids, pendingDepth.asks);
+      bookStrikeFvAccumulator.onDepthSnapshot(pendingDepth.ts, pendingDepth.bids, pendingDepth.asks);
+      pendingDepth = null;
+      await fetchNextDepth();
     }
     while (btcTradePtr < btcTrades.length && btcTrades[btcTradePtr].ts <= ts) {
       const tr = btcTrades[btcTradePtr];
@@ -486,7 +509,7 @@ async function main() {
       btc: { bid: latestBtcTick.bid, ask: latestBtcTick.ask, mid: (latestBtcTick.bid + latestBtcTick.ask) / 2 },
       up: { bestBid: latestUp?.bestBid ?? 0, bestAsk: latestUp?.bestAsk ?? 0, lastTrade: latestUp?.lastTrade ?? null },
       down: { bestBid: latestDown?.bestBid ?? 0, bestAsk: latestDown?.bestAsk ?? 0, lastTrade: latestDown?.lastTrade ?? null },
-      btcDepth: { bids: (latestBtcDepth?.bids ?? []).slice(0, 200), asks: (latestBtcDepth?.asks ?? []).slice(0, 200) },
+      btcDepth: { bids: latestBtcDepth?.bids ?? [], asks: latestBtcDepth?.asks ?? [] },
       polyUpDepth: { bids: latestUp?.bids ?? [], asks: latestUp?.asks ?? [] },
       polyDownDepth: { bids: latestDown?.bids ?? [], asks: latestDown?.asks ?? [] },
       fairValue: resolvedStrikePrice != null
@@ -497,6 +520,8 @@ async function main() {
         : null,
     });
   }
+
+  depthRl2.close();
 
   sendProgress(95, 'Building metadata...');
 
