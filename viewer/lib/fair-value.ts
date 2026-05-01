@@ -1,6 +1,6 @@
 import type { FairValueData } from './types';
 
-export const CACHE_VERSION = 7;
+export const CACHE_VERSION = 8;
 
 export const PARAMS = {
   micropriceWeight: 0.7,
