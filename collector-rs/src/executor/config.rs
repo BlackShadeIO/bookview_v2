@@ -83,6 +83,10 @@ pub struct AppConfig {
     pub relayer_api_key: Option<SecretString>,
     pub relayer_api_secret: Option<SecretString>,
     pub relayer_passphrase: Option<SecretString>,
+    pub strategy_name: String,
+    pub split_amount: u64,
+    pub strategy_order_size: f64,
+    pub max_markets: u64,
 }
 
 impl fmt::Debug for AppConfig {
@@ -107,6 +111,10 @@ impl fmt::Debug for AppConfig {
             .field("relayer_api_key", &self.relayer_api_key.as_ref().map(|_| "[SET]"))
             .field("relayer_api_secret", &self.relayer_api_secret.as_ref().map(|_| "[SET]"))
             .field("relayer_passphrase", &self.relayer_passphrase.as_ref().map(|_| "[SET]"))
+            .field("strategy_name", &self.strategy_name)
+            .field("split_amount", &self.split_amount)
+            .field("strategy_order_size", &self.strategy_order_size)
+            .field("max_markets", &self.max_markets)
             .finish()
     }
 }
@@ -154,6 +162,11 @@ impl AppConfig {
         let order_price_min = parse_decimal("ORDER_PRICE_MIN", Decimal::new(5, 2)).ok()?;
         let order_price_max = parse_decimal("ORDER_PRICE_MAX", Decimal::new(95, 2)).ok()?;
 
+        let strategy_name = std::env::var("STRATEGY").unwrap_or_else(|_| "noop".into());
+        let split_amount = parse_or_default("SPLIT_AMOUNT", 10u64).ok()?;
+        let strategy_order_size = parse_or_default("STRATEGY_ORDER_SIZE", 5.0f64).ok()?;
+        let max_markets = parse_or_default("EXECUTOR_MAX_MARKETS", 0u64).ok()?;
+
         if order_price_min >= order_price_max
             || order_price_min <= Decimal::ZERO
             || order_price_max >= Decimal::ONE
@@ -183,6 +196,10 @@ impl AppConfig {
             relayer_api_key,
             relayer_api_secret,
             relayer_passphrase,
+            strategy_name,
+            split_amount,
+            strategy_order_size,
+            max_markets,
         })
     }
 

@@ -2,6 +2,8 @@ pub mod auth;
 pub mod bridge;
 pub mod clob;
 pub mod config;
+pub mod ctf_ops;
+pub mod fv_convergence;
 pub mod gamma;
 pub mod order_manager;
 pub mod relayer;

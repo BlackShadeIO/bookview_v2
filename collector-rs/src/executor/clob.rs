@@ -6,6 +6,7 @@ use super::auth::AuthenticatedClobClient;
 
 pub use polymarket_client_sdk_v2::clob::types::Side;
 pub use polymarket_client_sdk_v2::clob::types::OrderType;
+pub use polymarket_client_sdk_v2::clob::types::OrderStatusType;
 
 #[derive(Error, Debug)]
 pub enum ClobError {
@@ -242,6 +243,82 @@ pub async fn place_typed_order(
     Ok(OrderResponse {
         order_id: resp.order_id,
         status: format!("{:?}", resp.status),
+    })
+}
+
+pub async fn place_post_only_order(
+    client: &AuthenticatedClobClient,
+    signer: &PrivateKeySigner,
+    params: LimitOrderParams,
+) -> Result<OrderResponse, ClobError> {
+    let token: alloy::primitives::U256 = params
+        .token_id
+        .parse()
+        .map_err(|e: alloy::primitives::ruint::ParseError| {
+            ClobError::RequestFailed(format!("invalid token ID: {e}"))
+        })?;
+
+    tracing::info!(
+        token_id = %params.token_id,
+        side = ?params.side,
+        price = %params.price,
+        size = %params.size,
+        "Placing post-only order"
+    );
+
+    let resp = client
+        .limit_order()
+        .token_id(token)
+        .side(params.side)
+        .price(params.price)
+        .size(params.size)
+        .order_type(OrderType::GTC)
+        .post_only(true)
+        .build_sign_and_post(signer)
+        .await
+        .map_err(|e| ClobError::RequestFailed(e.to_string()))?;
+
+    if !resp.success {
+        let reason = resp
+            .error_msg
+            .unwrap_or_else(|| format!("status={:?}", resp.status));
+        return Err(ClobError::OrderRejected(reason));
+    }
+
+    tracing::info!(order_id = %resp.order_id, status = ?resp.status, "Post-only order placed");
+
+    Ok(OrderResponse {
+        order_id: resp.order_id,
+        status: format!("{:?}", resp.status),
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderStatusInfo {
+    pub order_id: String,
+    pub status: OrderStatusType,
+    pub original_size: Decimal,
+    pub size_matched: Decimal,
+    pub price: Decimal,
+    pub side: Side,
+}
+
+pub async fn get_order_status(
+    client: &AuthenticatedClobClient,
+    order_id: &str,
+) -> Result<OrderStatusInfo, ClobError> {
+    let resp = client
+        .order(order_id)
+        .await
+        .map_err(|e| ClobError::RequestFailed(e.to_string()))?;
+
+    Ok(OrderStatusInfo {
+        order_id: resp.id,
+        status: resp.status,
+        original_size: resp.original_size,
+        size_matched: resp.size_matched,
+        price: resp.price,
+        side: resp.side,
     })
 }
 

@@ -1,4 +1,4 @@
-use alloy::primitives::{address, Address, Bytes, B256, U256};
+use alloy::primitives::{Bytes, B256, U256};
 use alloy::sol_types::SolCall;
 use anyhow::Result;
 use chrono::Utc;
@@ -8,45 +8,7 @@ use rust_decimal_macros::dec;
 use tracing_subscriber::EnvFilter;
 
 use bookview_collector::executor;
-
-const USDC_E: Address = address!("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174");
-const PUSD: Address = address!("0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb");
-const CTF_ADAPTER: Address = address!("0xAdA100Db00Ca00073811820692005400218FcE1f");
-
-alloy::sol! {
-    interface IConditionalTokens {
-        function splitPosition(
-            address collateralToken,
-            bytes32 parentCollectionId,
-            bytes32 conditionId,
-            uint256[] calldata partition,
-            uint256 amount
-        ) external;
-
-        function mergePositions(
-            address collateralToken,
-            bytes32 parentCollectionId,
-            bytes32 conditionId,
-            uint256[] calldata partition,
-            uint256 amount
-        ) external;
-
-        function redeemPositions(
-            address collateralToken,
-            bytes32 parentCollectionId,
-            bytes32 conditionId,
-            uint256[] calldata indexSets
-        ) external;
-    }
-
-    interface IERC1155 {
-        function setApprovalForAll(address operator, bool approved) external;
-    }
-
-    interface IERC20 {
-        function approve(address spender, uint256 amount) external returns (bool);
-    }
-}
+use executor::ctf_ops::{self, CTF_ADAPTER, PUSD, USDC_E, IERC1155, IERC20, IConditionalTokens};
 
 #[derive(Parser)]
 #[command(name = "executor-cli", about = "Polymarket executor CLI utilities")]
@@ -766,49 +728,7 @@ async fn do_split(
     market: &executor::gamma::BtcFiveMinMarket,
     amount: u64,
 ) -> Result<String> {
-    let signer = executor::auth::create_signer(config)?;
-    let relayer = executor::relayer::RelayerClient::new(config, signer, http.clone())?;
-
-    let condition_id: B256 = market
-        .condition_id
-        .parse()
-        .map_err(|_| anyhow::anyhow!("Invalid condition ID hex"))?;
-    let amount_units = U256::from(amount) * U256::from(1_000_000u64);
-
-    let approve_data = IERC20::approveCall {
-        spender: CTF_ADAPTER,
-        amount: U256::MAX,
-    }
-    .abi_encode();
-
-    let split_data = IConditionalTokens::splitPositionCall {
-        collateralToken: USDC_E,
-        parentCollectionId: B256::ZERO,
-        conditionId: condition_id,
-        partition: vec![U256::from(1), U256::from(2)],
-        amount: amount_units,
-    }
-    .abi_encode();
-
-    let calls = vec![
-        executor::relayer::ProxyCall {
-            typeCode: 1,
-            to: PUSD,
-            value: U256::ZERO,
-            data: Bytes::from(approve_data),
-        },
-        executor::relayer::ProxyCall {
-            typeCode: 1,
-            to: CTF_ADAPTER,
-            value: U256::ZERO,
-            data: Bytes::from(split_data),
-        },
-    ];
-
-    let result = relayer.execute_and_wait(calls, "test-flow split").await?;
-    Ok(result
-        .transaction_hash
-        .unwrap_or_else(|| "pending".into()))
+    ctf_ops::split_position(http, config, &market.condition_id, amount).await
 }
 
 async fn do_register_positions(
@@ -816,43 +736,5 @@ async fn do_register_positions(
     signer: &alloy::signers::local::PrivateKeySigner,
     market: &executor::gamma::BtcFiveMinMarket,
 ) -> Result<()> {
-    for token_id_str in &market.clob_token_ids {
-        let token_id: U256 = token_id_str
-            .parse()
-            .map_err(|_| anyhow::anyhow!("Invalid token ID"))?;
-
-        let update_req =
-            polymarket_client_sdk_v2::clob::types::request::BalanceAllowanceRequest::builder()
-                .asset_type(polymarket_client_sdk_v2::clob::types::AssetType::Conditional)
-                .token_id(token_id)
-                .build();
-
-        clob_client
-            .update_balance_allowance(update_req)
-            .await
-            .map_err(|e| anyhow::anyhow!("balance_allowance failed for {token_id_str}: {e}"))?;
-
-        tracing::info!(token_id = %token_id_str, "Balance allowance updated");
-    }
-
-    let yes_token = market
-        .clob_token_ids
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("no YES token ID"))?;
-
-    let resp = executor::clob::place_limit_order(
-        clob_client,
-        signer,
-        executor::clob::LimitOrderParams {
-            token_id: yes_token.clone(),
-            side: executor::clob::Side::Sell,
-            price: dec!(0.95),
-            size: dec!(5.0),
-        },
-    )
-    .await?;
-
-    let _ = executor::clob::cancel_order(clob_client, &resp.order_id).await;
-    tracing::info!("Position registered with CLOB via place+cancel");
-    Ok(())
+    ctf_ops::register_positions(clob_client, signer, &market.clob_token_ids).await
 }

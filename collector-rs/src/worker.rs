@@ -1,4 +1,6 @@
 use std::sync::Arc;
+#[cfg(feature = "executor")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
@@ -12,6 +14,9 @@ use bookview_collector::error::WorkerError;
 use bookview_collector::fair_value::{self, FairValueFeeds, FairValueParams};
 use bookview_collector::types::*;
 use bookview_collector::writer::{SeqCounter, spawn_writer};
+
+#[cfg(feature = "executor")]
+static EXECUTOR_MARKETS_RUN: AtomicU64 = AtomicU64::new(0);
 
 pub async fn run_worker(market_start: i64, cancel: CancellationToken) -> Result<(), WorkerError> {
     let folder = DATA_DIR.join(market_start.to_string());
@@ -73,9 +78,28 @@ pub async fn run_worker(market_start: i64, cancel: CancellationToken) -> Result<
         .build()
         .expect("failed to build HTTP client");
 
-    // Executor setup (conditional on feature + config)
+    // Executor setup (conditional on feature + config + toggle + market count)
     #[cfg(feature = "executor")]
-    let executor_config = bookview_collector::executor::config::AppConfig::try_from_env();
+    let executor_config = bookview_collector::executor::config::AppConfig::try_from_env()
+        .filter(|cfg| {
+            let toggle_path = DATA_DIR.join(".executor-enabled");
+            if !toggle_path.exists() {
+                tracing::info!("Executor disabled: {} not found", toggle_path.display());
+                return false;
+            }
+            if cfg.max_markets > 0 {
+                let count = EXECUTOR_MARKETS_RUN.load(Ordering::Relaxed);
+                if count >= cfg.max_markets {
+                    tracing::info!(
+                        count,
+                        max = cfg.max_markets,
+                        "Executor disabled: market limit reached"
+                    );
+                    return false;
+                }
+            }
+            true
+        });
 
     #[cfg(feature = "executor")]
     let (market_info_tx, poly_bba_tx, fv_snapshot_tx, executor_setup) = if let Some(exec_config) = executor_config {
@@ -127,6 +151,9 @@ pub async fn run_worker(market_start: i64, cancel: CancellationToken) -> Result<
         run_polymarket(market_start, poly_writer, poly_cancel, poly_client, market_info_tx, poly_bba_tx).await
     });
 
+    #[cfg(feature = "executor")]
+    let exec_http = client.clone();
+
     let bin_cancel = cancel.clone();
     let bin_writer = depth_writer.clone();
     let bin = tokio::spawn(async move {
@@ -138,6 +165,7 @@ pub async fn run_worker(market_start: i64, cancel: CancellationToken) -> Result<
     let executor_task = if let Some((mi_rx, pb_rx, fv_rx, exec_config)) = executor_setup {
         let (exec_writer, exec_handle) = spawn_writer(folder.join("executor.jsonl"));
         let exec_cancel = cancel.clone();
+        let exec_client = exec_http;
         let task = tokio::spawn(async move {
             bookview_collector::executor::runner::run_executor(
                 market_start,
@@ -147,6 +175,7 @@ pub async fn run_worker(market_start: i64, cancel: CancellationToken) -> Result<
                 exec_writer,
                 exec_cancel,
                 exec_config,
+                exec_client,
             )
             .await
         });
@@ -166,6 +195,8 @@ pub async fn run_worker(market_start: i64, cancel: CancellationToken) -> Result<
         task.abort();
         let _ = task.await;
         drop(handle);
+        let count = EXECUTOR_MARKETS_RUN.fetch_add(1, Ordering::Relaxed) + 1;
+        tracing::info!(market = market_start, executor_markets_run = count, "Executor market completed");
     }
 
     timer.abort();
