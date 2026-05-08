@@ -51,10 +51,7 @@ export function LivePriceChart({ id, getValue, color, label, priceFormat, strike
   const overlay4GetValueRef = useRef(overlay4GetValue);
   overlay4GetValueRef.current = overlay4GetValue;
 
-  const hasOverlay = !!overlayGetValue;
-  const hasOverlay2 = !!overlay2GetValue;
-  const hasOverlay3 = !!overlay3GetValue;
-  const hasOverlay4 = !!overlay4GetValue;
+  const prevOverlayStateRef = useRef([!!overlayGetValue, !!overlay2GetValue, !!overlay3GetValue, !!overlay4GetValue]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -90,57 +87,45 @@ export function LivePriceChart({ id, getValue, color, label, priceFormat, strike
       strikeSeriesRef.current = strikeSeries;
     }
 
-    if (hasOverlay) {
-      const overlaySeries = chart.addSeries(LineSeries, {
-        color: overlayColor ?? '#06B6D4',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        priceLineVisible: false,
-        lastValueVisible: true,
-        crosshairMarkerVisible: false,
-        title: overlayLabel ?? 'FAIR',
-      });
-      overlaySeriesRef.current = overlaySeries;
-    }
+    overlaySeriesRef.current = chart.addSeries(LineSeries, {
+      color: overlayColor ?? '#06B6D4',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      title: overlayLabel ?? 'FAIR',
+    });
 
-    if (hasOverlay2) {
-      const overlay2Series = chart.addSeries(LineSeries, {
-        color: overlay2Color ?? '#F97316',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        priceLineVisible: false,
-        lastValueVisible: true,
-        crosshairMarkerVisible: false,
-        title: overlay2Label ?? 'BOOK',
-      });
-      overlay2SeriesRef.current = overlay2Series;
-    }
+    overlay2SeriesRef.current = chart.addSeries(LineSeries, {
+      color: overlay2Color ?? '#F97316',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      title: overlay2Label ?? 'BOOK',
+    });
 
-    if (hasOverlay3) {
-      const overlay3Series = chart.addSeries(LineSeries, {
-        color: overlay3Color ?? '#A855F7',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        priceLineVisible: false,
-        lastValueVisible: true,
-        crosshairMarkerVisible: false,
-        title: overlay3Label ?? 'COLL',
-      });
-      overlay3SeriesRef.current = overlay3Series;
-    }
+    overlay3SeriesRef.current = chart.addSeries(LineSeries, {
+      color: overlay3Color ?? '#A855F7',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      title: overlay3Label ?? 'COLL',
+    });
 
-    if (hasOverlay4) {
-      const overlay4Series = chart.addSeries(LineSeries, {
-        color: overlay4Color ?? '#EC4899',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        priceLineVisible: false,
-        lastValueVisible: true,
-        crosshairMarkerVisible: false,
-        title: overlay4Label ?? 'LSTM',
-      });
-      overlay4SeriesRef.current = overlay4Series;
-    }
+    overlay4SeriesRef.current = chart.addSeries(LineSeries, {
+      color: overlay4Color ?? '#EC4899',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      title: overlay4Label ?? 'LSTM',
+    });
 
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -164,7 +149,7 @@ export function LivePriceChart({ id, getValue, color, label, priceFormat, strike
       overlay3SeriesRef.current = null;
       overlay4SeriesRef.current = null;
     };
-  }, [color, strikePrice, hasOverlay, overlayColor, overlayLabel, hasOverlay2, overlay2Color, overlay2Label, hasOverlay3, overlay3Color, overlay3Label, hasOverlay4, overlay4Color, overlay4Label]);
+  }, [color, strikePrice, overlayColor, overlayLabel, overlay2Color, overlay2Label, overlay3Color, overlay3Label, overlay4Color, overlay4Label]);
 
   useEffect(() => {
     lastFrameCountRef.current = 0;
@@ -194,6 +179,21 @@ export function LivePriceChart({ id, getValue, color, label, priceFormat, strike
       const currentOverlay3GetValue = overlay3GetValueRef.current;
       const currentOverlay4GetValue = overlay4GetValueRef.current;
       const baseTimeSec = epoch;
+
+      const overlayState = [!!currentOverlayGetValue, !!currentOverlay2GetValue, !!currentOverlay3GetValue, !!currentOverlay4GetValue];
+      const prev = prevOverlayStateRef.current;
+      const overlayRefs = [overlaySeriesRef, overlay2SeriesRef, overlay3SeriesRef, overlay4SeriesRef];
+      let toggleChanged = false;
+      for (let i = 0; i < 4; i++) {
+        if (overlayState[i] !== prev[i]) {
+          toggleChanged = true;
+          if (!overlayState[i]) overlayRefs[i].current?.setData([]);
+        }
+      }
+      if (toggleChanged) {
+        prevOverlayStateRef.current = overlayState;
+        lastFrameCountRef.current = 0;
+      }
 
       if (frames.length < lastFrameCountRef.current) {
         series.setData([]);
@@ -274,10 +274,10 @@ export function LivePriceChart({ id, getValue, color, label, priceFormat, strike
               { time: data[data.length - 1].time, value: strikePrice },
             ]);
           }
-          if (overlaySeriesRef.current && overlayData.length > 0) overlaySeriesRef.current.setData(overlayData);
-          if (overlay2SeriesRef.current && overlay2Data.length > 0) overlay2SeriesRef.current.setData(overlay2Data);
-          if (overlay3SeriesRef.current && overlay3Data.length > 0) overlay3SeriesRef.current.setData(overlay3Data);
-          if (overlay4SeriesRef.current && overlay4Data.length > 0) overlay4SeriesRef.current.setData(overlay4Data);
+          if (overlaySeriesRef.current) overlaySeriesRef.current.setData(overlayData);
+          if (overlay2SeriesRef.current) overlay2SeriesRef.current.setData(overlay2Data);
+          if (overlay3SeriesRef.current) overlay3SeriesRef.current.setData(overlay3Data);
+          if (overlay4SeriesRef.current) overlay4SeriesRef.current.setData(overlay4Data);
         }
       } else {
         for (let i = startIdx; i < frames.length; i++) {
